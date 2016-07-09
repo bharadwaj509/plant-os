@@ -6,6 +6,7 @@ plantOS
 Partners
 ============================
 ![MITCityFarm](https://avatars1.githubusercontent.com/u/8797566?v=3&s=200)
-
+<BR>
 Digitizing Agriculture
-T:(twitter.com/plant_os) W:(plant-os.com)
+</BR>
+T:(http://twitter.com/plant_os) W:(http://plant-os.com)
