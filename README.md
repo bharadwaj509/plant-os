@@ -12,7 +12,7 @@ Plant-os Components
 1. Plant-os Core iOT
 2. Plant-os GCP Data Processing Engine (DPE)
 3. Google APP Engine Analytics
-
+4. Dashboard added in the dashboard branch
 
 1.Plant-os Core iOT:
 
