@@ -2,9 +2,10 @@
 
 import io         # used to create file streams
 import fcntl      # used to access I2C parameters like addresses
-
 import time       # used for sleep delay and timestamps
 import string     # helps parse strings
+import smbus
+import Adafruit_DHT
 
 #
 #   Atlas Scientific
@@ -12,7 +13,7 @@ import string     # helps parse strings
 
 class AtlasI2C:
     long_timeout = 1.5         	# the timeout needed to query readings and calibrations
-    short_timeout = .5         	# timeout for regular commands
+    short_timeout = 0.5         	# timeout for regular commands
     default_bus = 1         	# the default bus for I2C on the newer Raspberry Pis, certain older boards use bus 0
     default_address = 99     	# the default address for the sensor
     current_addr = default_address
@@ -50,7 +51,16 @@ class AtlasI2C:
             # change MSB to 0 for all received characters except the first and get a list of characters
             char_list = map(lambda x: chr(ord(x) & ~0x80), list(response[1:]))
             # NOTE: having to change the MSB to 0 is a glitch in the raspberry pi, and you shouldn't have to do this!
-            return "Command succeeded " + ''.join(char_list)     # convert the char list to a string and returns it
+            if self.current_addr == 99: # pH sensor
+                return "pH: " + ''.join(char_list)     # convert the char list to a string and returns it
+            elif self.current_addr == 100: # EC sensor
+                temp_string=''.join(char_list)
+                print 'EC: ' + string.split(temp_string, ",")[0]
+                print 'TDS: ' + string.split(temp_string, ",")[1]
+                print 'Salinity: ' + string.split(temp_string, ",")[2]
+                return "Gravity: " + string.split(temp_string, ",")[3]     # convert the char list to a string and returns it
+            elif self.current_addr == 102: # RTD sensor
+                return "Soluble Temperature: " + ''.join(char_list) + " C"     # convert the char list to a string and returns it
         else:
             return "Error " + str(ord(response[0]))
     
@@ -86,20 +96,46 @@ class AtlasI2C:
         self.set_i2c_address(prev_addr) # restore the address we were using
         return i2c_devices
 
+#
+#   BH1750
+#
 
+class BH1750():
+    # define constants
+    default_address = 0x23              # the default bus for I2C on the newer Raspberry Pis, certain older boards use bus 0
+    default_bus = 1                     # the default address for the sensor
+    POWER_DOWN = 0x00                   # No active state
+    POWER_ON = 0x01                     # Power on
+    RESET = 0x07                        # Reset data register value
+    CONTINUOUS_LOW_RES_MODE = 0x13      # Start measurement at 4lx resolution. Time typically 16ms
+    CONTINUOUS_HIGH_RES_MODE_1 = 0x10   # Start measurement at 1lx resolution. Time typically 120ms
+    CONTINUOUS_HIGH_RES_MODE_2 = 0x11   # Start measurement at 0.5lx resolution. Time typically 120ms
+    ONE_TIME_HIGH_RES_MODE_1 = 0x20     # Start measurement at 1lx resolution. Time typically 120ms. Device is automatically set to Power Down after measurement.
+    ONE_TIME_HIGH_RES_MODE_2 = 0x21     # Start measurement at 0.5lx resolution. Time typically 120ms. Device is automatically set to Power Down after measurement.
+    ONE_TIME_LOW_RES_MODE = 0x23        # Start measurement at 1lx resolution. Time typically 120ms. Device is automatically set to Power Down after measurement.
+    
+    def __init__(self):
+        self.bus = smbus.SMBus(1)
+    
+    def convertToNumber(self, data):
+        return ((data[1]+(256*data[0]))/1.2)
+
+    def readLight(self, addr=default_address):
+        data=self.bus.read_i2c_block_data(addr,self.ONE_TIME_HIGH_RES_MODE_1)
+        return self.convertToNumber(data)
+
+#
+#   Main
+#
 
 
 def main():
     device = AtlasI2C() 	# creates the I2C port object, specify the address or bus if necessary
-        
-    print(">> Atlas Scientific sample code")
-    print(">> Any commands entered are passed to the board via I2C except:")
-    print(">>   List_addr lists the available I2C addresses.")
-    print(">>   Address,xx changes the I2C address the Raspberry Pi communicates with.")
-    print(">>   Poll,xx.x command continuously polls the board every xx.x seconds")
-    print(" where xx.x is longer than the %0.2f second timeout." % AtlasI2C.long_timeout)
-    print(">> Pressing ctrl-c will stop the polling")
-        
+    device1 = BH1750()
+    device2 = Adafruit_DHT.DHT22
+    
+    pin = 24 # DHT22 data pin
+    
     # main loop
     while True:
         input = raw_input("Enter command: ")
@@ -108,12 +144,6 @@ def main():
             devices = device.list_i2c_devices()
             for i in range(len (devices)):
                 print devices[i]
-            
-        # address command lets you change which address the Raspberry Pi will poll
-        elif input.upper().startswith("ADDRESS"):
-            addr = int(string.split(input, ',')[1])
-            device.set_i2c_address(addr)
-            print("I2C address set to " + str(addr))
                 
         # continuous polling command automatically polls the board
         elif input.upper().startswith("POLL"):
@@ -130,7 +160,18 @@ def main():
                         
             try:
                 while True:
-                    print(device.query("R"))
+                    humidity, temperature = Adafruit_DHT.read_retry(device2, pin)
+                    if humidity is not None and temperature is not None:
+                        print('Ambient Temperature: {0:0.1f} C  \nAmbient Humidity: {1:0.1f} %'.format(temperature, humidity))
+                    else:
+                        print('Failed to get reading DHT22. Try again!')
+                    device.set_i2c_address(99)
+                    print(device.query("R"))    # (99 pH)
+                    device.set_i2c_address(100)
+                    print(device.query("R"))    # (100 EC)
+                    device.set_i2c_address(102)
+                    print(device.query("R"))    # (102 RTD)
+                    print 'Light Intensity: ' + str(device1.readLight()) + ' lx'
                     time.sleep(delaytime - AtlasI2C.long_timeout)
             except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
                     print("Continuous polling stopped")
